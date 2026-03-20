@@ -22,8 +22,12 @@ serve(async (req) => {
       );
     }
 
+    // Map string difficulty to numeric value for ML API
+    const difficultyMap: Record<string, number> = { easy: 1, medium: 2, hard: 3 };
+    const difficultyNum = difficultyMap[difficulty] ?? 2;
+
     // ML API expects query parameters, not JSON body
-    const url = `${ML_API_BASE}?concept=${encodeURIComponent(concept)}&difficulty=${encodeURIComponent(difficulty)}&time_gap=${encodeURIComponent(time_gap)}`;
+    const url = `${ML_API_BASE}?concept=${encodeURIComponent(concept)}&difficulty=${difficultyNum}&time_gap=${encodeURIComponent(time_gap)}`;
 
     const response = await fetch(url, { method: "POST" });
     const data = await response.json();
