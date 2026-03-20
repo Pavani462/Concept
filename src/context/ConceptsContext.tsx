@@ -134,7 +134,26 @@ export const ConceptsProvider = ({ children }: { children: React.ReactNode }) =>
       .eq("user_id", user.id)
       .order("created_at", { ascending: false });
     if (error) { toast.error("Failed to load concepts"); console.error(error); }
-    else setConcepts((data ?? []).map(mapRow));
+    else {
+      const mapped = (data ?? []).map(mapRow);
+      setConcepts(mapped);
+      // Fetch ML predictions asynchronously and update
+      Promise.all(
+        mapped.map(async (c) => {
+          const mlProb = await fetchMLPrediction(c.name, c.difficulty, c.daysSinceReview ?? 0);
+          return { id: c.id, mlProb };
+        })
+      ).then((results) => {
+        setConcepts((prev) =>
+          prev.map((c) => {
+            const r = results.find((x) => x.id === c.id);
+            return r?.mlProb !== null && r?.mlProb !== undefined
+              ? { ...c, forgettingProbability: r.mlProb }
+              : c;
+          })
+        );
+      });
+    }
     setLoading(false);
   }, [user]);
 
