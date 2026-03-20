@@ -2,14 +2,14 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
 
-const ML_API_URL = "https://forgetting-backend.onrender.com/predict";
+const ML_API_BASE = "https://forgetting-backend.onrender.com/predict";
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response(null, { headers: corsHeaders });
   }
 
   try {
@@ -22,12 +22,10 @@ serve(async (req) => {
       );
     }
 
-    const response = await fetch(ML_API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ concept, difficulty, time_gap }),
-    });
+    // ML API expects query parameters, not JSON body
+    const url = `${ML_API_BASE}?concept=${encodeURIComponent(concept)}&difficulty=${encodeURIComponent(difficulty)}&time_gap=${encodeURIComponent(time_gap)}`;
 
+    const response = await fetch(url, { method: "POST" });
     const data = await response.json();
 
     if (!response.ok) {
