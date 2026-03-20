@@ -3,6 +3,27 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 
+// Call the ML backend via edge function to predict forgetting probability
+async function fetchMLPrediction(concept: string, difficulty: string, timeGap: number): Promise<number | null> {
+  try {
+    const { data, error } = await supabase.functions.invoke("predict-forgetting", {
+      body: { concept, difficulty, time_gap: timeGap },
+    });
+    if (error) {
+      console.warn("ML prediction failed, using local fallback:", error);
+      return null;
+    }
+    // Expect the API to return a forgetting probability (0-100 or 0-1)
+    const prob = data?.forgetting_probability ?? data?.prediction ?? data?.probability ?? null;
+    if (prob === null || prob === undefined) return null;
+    // Normalize: if value is between 0-1, convert to percentage
+    return prob <= 1 ? Math.round(prob * 100) : Math.round(prob);
+  } catch (err) {
+    console.warn("ML prediction request failed:", err);
+    return null;
+  }
+}
+
 export interface Concept {
   id: string;
   name: string;
@@ -113,7 +134,26 @@ export const ConceptsProvider = ({ children }: { children: React.ReactNode }) =>
       .eq("user_id", user.id)
       .order("created_at", { ascending: false });
     if (error) { toast.error("Failed to load concepts"); console.error(error); }
-    else setConcepts((data ?? []).map(mapRow));
+    else {
+      const mapped = (data ?? []).map(mapRow);
+      setConcepts(mapped);
+      // Fetch ML predictions asynchronously and update
+      Promise.all(
+        mapped.map(async (c) => {
+          const mlProb = await fetchMLPrediction(c.name, c.difficulty, c.daysSinceReview ?? 0);
+          return { id: c.id, mlProb };
+        })
+      ).then((results) => {
+        setConcepts((prev) =>
+          prev.map((c) => {
+            const r = results.find((x) => x.id === c.id);
+            return r?.mlProb !== null && r?.mlProb !== undefined
+              ? { ...c, forgettingProbability: r.mlProb }
+              : c;
+          })
+        );
+      });
+    }
     setLoading(false);
   }, [user]);
 
