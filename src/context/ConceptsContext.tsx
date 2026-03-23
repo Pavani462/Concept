@@ -140,16 +140,27 @@ export const ConceptsProvider = ({ children }: { children: React.ReactNode }) =>
       // Fetch ML predictions asynchronously and update
       Promise.all(
         mapped.map(async (c) => {
-          const mlProb = await fetchMLPrediction(c.name, c.difficulty, c.daysSinceReview ?? 0);
-          return { id: c.id, mlProb };
+          const mlResult = await fetchMLPredictionFull(c.name, c.difficulty, c.daysSinceReview ?? 0);
+          return { id: c.id, mlResult };
         })
       ).then((results) => {
         setConcepts((prev) =>
           prev.map((c) => {
             const r = results.find((x) => x.id === c.id);
-            return r?.mlProb !== null && r?.mlProb !== undefined
-              ? { ...c, forgettingProbability: r.mlProb }
-              : c;
+            if (!r?.mlResult) return c;
+            const { forgettingProbability, retention: mlRetention } = r.mlResult;
+            // Use ML retention to adjust displayed retention
+            const adjustedRetention = mlRetention !== null
+              ? Math.round(mlRetention * 100)
+              : Math.max(0, 100 - forgettingProbability);
+            const adjustedStatus: Concept["status"] =
+              adjustedRetention >= 70 ? "strong" : adjustedRetention >= 40 ? "fading" : "critical";
+            return {
+              ...c,
+              forgettingProbability,
+              retention: adjustedRetention,
+              status: adjustedStatus,
+            };
           })
         );
       });
