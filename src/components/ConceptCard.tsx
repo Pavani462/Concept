@@ -75,6 +75,15 @@ const ConceptCard = ({ concept, showActions = false }: { concept: Concept; showA
                 style={{ width: `${concept.forgettingProbability}%` }}
               />
             </div>
+            <p className={`text-xs mt-1 font-medium ${concept.forgettingProbability >= 60 ? "text-danger" : concept.forgettingProbability >= 35 ? "text-accent-foreground" : "text-success"}`}>
+              {concept.forgettingProbability >= 70
+                ? "⚠️ Revise immediately"
+                : concept.forgettingProbability >= 40
+                ? "📝 Revise within 2 days"
+                : concept.forgettingProbability <= 20
+                ? "✅ Just learned"
+                : "✅ No immediate revision needed"}
+            </p>
           </div>
         )}
       </div>
