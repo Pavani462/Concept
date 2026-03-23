@@ -1,17 +1,49 @@
 import { useState, useMemo } from "react";
 import { useConcepts } from "@/context/ConceptsContext";
-import { getQuestionsForConcept, type QuizQuestion } from "@/data/quizData";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { GraduationCap, ChevronRight, RotateCcw, CheckCircle2, XCircle, Trophy, ArrowRight } from "lucide-react";
+import { GraduationCap, ChevronRight, RotateCcw, CheckCircle2, XCircle, Trophy, ArrowRight, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 
-type QuizState = "select" | "in-progress" | "result";
+interface QuizQuestion {
+  id: string;
+  conceptId: string;
+  conceptName: string;
+  subject: string;
+  question: string;
+  options: string[];
+  correctIndex: number;
+}
+
+type QuizState = "select" | "loading" | "in-progress" | "result";
 
 interface QuizResult {
   conceptId: string;
   conceptName: string;
   total: number;
   correct: number;
+}
+
+async function fetchAIQuestions(conceptName: string, subject: string, difficulty: string, conceptId: string): Promise<QuizQuestion[]> {
+  try {
+    const { data, error } = await supabase.functions.invoke("generate-quiz", {
+      body: { conceptName, subject, difficulty, numQuestions: 3 },
+    });
+    if (error || !data?.questions) throw new Error(error?.message || "No questions returned");
+    return data.questions.map((q: any, i: number) => ({
+      id: `ai-${conceptId}-${i}`,
+      conceptId,
+      conceptName,
+      subject,
+      question: q.question,
+      options: q.options,
+      correctIndex: q.correctIndex,
+    }));
+  } catch (err) {
+    console.error("AI quiz generation failed:", err);
+    return [];
+  }
 }
 
 const QuizPage = () => {
@@ -32,25 +64,39 @@ const QuizPage = () => {
     );
   };
 
-  const startQuiz = () => {
-    const allQ: QuizQuestion[] = [];
-    selectedConceptIds.forEach((cId) => {
-      const concept = concepts.find((c) => c.id === cId);
-      if (concept) {
-        allQ.push(...getQuestionsForConcept(cId, concept.name, concept.subject));
+  const startQuiz = async () => {
+    setState("loading");
+    try {
+      const allQuestions: QuizQuestion[] = [];
+      const fetchPromises = selectedConceptIds.map((cId) => {
+        const concept = concepts.find((c) => c.id === cId);
+        if (!concept) return Promise.resolve([]);
+        return fetchAIQuestions(concept.name, concept.subject, concept.difficulty, cId);
+      });
+      const results = await Promise.all(fetchPromises);
+      results.forEach((qs) => allQuestions.push(...qs));
+
+      if (allQuestions.length === 0) {
+        toast.error("Failed to generate questions. Please try again.");
+        setState("select");
+        return;
       }
-    });
-    // Shuffle
-    for (let i = allQ.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [allQ[i], allQ[j]] = [allQ[j], allQ[i]];
+
+      // Shuffle
+      for (let i = allQuestions.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [allQuestions[i], allQuestions[j]] = [allQuestions[j], allQuestions[i]];
+      }
+      setQuestions(allQuestions);
+      setCurrentIdx(0);
+      setResults({});
+      setSelectedOption(null);
+      setAnswered(false);
+      setState("in-progress");
+    } catch {
+      toast.error("Something went wrong generating the quiz.");
+      setState("select");
     }
-    setQuestions(allQ);
-    setCurrentIdx(0);
-    setResults({});
-    setSelectedOption(null);
-    setAnswered(false);
-    setState("in-progress");
   };
 
   const handleAnswer = (optionIdx: number) => {
@@ -75,12 +121,8 @@ const QuizPage = () => {
 
   const nextQuestion = () => {
     if (currentIdx + 1 >= questions.length) {
-      // Quiz done — update retention
       Object.entries(results).forEach(([conceptId, r]) => {
-        // Include the just-answered question
-        const q = questions[currentIdx];
-        const finalR = q.conceptId === conceptId ? r : r;
-        updateRetentionFromQuiz(conceptId, finalR.correct, finalR.total);
+        updateRetentionFromQuiz(conceptId, r.correct, r.total);
       });
       setState("result");
     } else {
@@ -104,6 +146,16 @@ const QuizPage = () => {
   const totalQuestions = finalResults.reduce((s, r) => s + r.total, 0);
   const scorePercent = totalQuestions ? Math.round((totalCorrect / totalQuestions) * 100) : 0;
 
+  // LOADING
+  if (state === "loading") {
+    return (
+      <div className="max-w-2xl mx-auto flex flex-col items-center justify-center py-20 gap-4">
+        <Loader2 className="w-10 h-10 text-primary animate-spin" />
+        <p className="text-muted-foreground font-medium">Generating AI questions for your topics...</p>
+      </div>
+    );
+  }
+
   // SELECT concepts
   if (state === "select") {
     return (
@@ -113,7 +165,7 @@ const QuizPage = () => {
           <div>
             <h1 className="text-2xl font-display font-bold text-foreground">Quiz</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Select concepts to test your memory retention
+              Select concepts — AI will generate real questions for you
             </p>
           </div>
         </div>
@@ -178,7 +230,6 @@ const QuizPage = () => {
 
     return (
       <div className="max-w-2xl mx-auto space-y-6">
-        {/* Progress */}
         <div className="flex items-center justify-between text-sm text-muted-foreground">
           <span className="font-display font-semibold text-foreground">
             Question {currentIdx + 1} of {questions.length}
@@ -192,7 +243,6 @@ const QuizPage = () => {
           />
         </div>
 
-        {/* Question card */}
         <div className="rounded-xl bg-card p-6 card-shadow space-y-6">
           <div>
             <p className="text-xs text-muted-foreground mb-1">{q.conceptName}</p>
@@ -268,7 +318,6 @@ const QuizPage = () => {
         </p>
       </div>
 
-      {/* Per-concept breakdown */}
       <div className="space-y-3">
         <h2 className="font-display font-semibold text-foreground">Concept Breakdown</h2>
         {finalResults.map((r) => {
