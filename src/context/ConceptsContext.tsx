@@ -4,7 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 
 // Call the ML backend via edge function to predict forgetting probability
-async function fetchMLPrediction(concept: string, difficulty: string, timeGap: number): Promise<number | null> {
+async function fetchMLPredictionFull(concept: string, difficulty: string, timeGap: number): Promise<{ forgettingProbability: number; retention: number | null } | null> {
   try {
     const { data, error } = await supabase.functions.invoke("predict-forgetting", {
       body: { concept, difficulty, time_gap: timeGap },
@@ -13,11 +13,11 @@ async function fetchMLPrediction(concept: string, difficulty: string, timeGap: n
       console.warn("ML prediction failed, using local fallback:", error);
       return null;
     }
-    // Expect the API to return a forgetting probability (0-100 or 0-1)
     const prob = data?.forgetting_probability ?? data?.prediction ?? data?.probability ?? null;
     if (prob === null || prob === undefined) return null;
-    // Normalize: if value is between 0-1, convert to percentage
-    return prob <= 1 ? Math.round(prob * 100) : Math.round(prob);
+    const fpNorm = prob <= 1 ? Math.round(prob * 100) : Math.round(prob);
+    const ret = data?.retention ?? null;
+    return { forgettingProbability: fpNorm, retention: typeof ret === "number" ? ret : null };
   } catch (err) {
     console.warn("ML prediction request failed:", err);
     return null;
@@ -140,16 +140,27 @@ export const ConceptsProvider = ({ children }: { children: React.ReactNode }) =>
       // Fetch ML predictions asynchronously and update
       Promise.all(
         mapped.map(async (c) => {
-          const mlProb = await fetchMLPrediction(c.name, c.difficulty, c.daysSinceReview ?? 0);
-          return { id: c.id, mlProb };
+          const mlResult = await fetchMLPredictionFull(c.name, c.difficulty, c.daysSinceReview ?? 0);
+          return { id: c.id, mlResult };
         })
       ).then((results) => {
         setConcepts((prev) =>
           prev.map((c) => {
             const r = results.find((x) => x.id === c.id);
-            return r?.mlProb !== null && r?.mlProb !== undefined
-              ? { ...c, forgettingProbability: r.mlProb }
-              : c;
+            if (!r?.mlResult) return c;
+            const { forgettingProbability, retention: mlRetention } = r.mlResult;
+            // Use ML retention to adjust displayed retention
+            const adjustedRetention = mlRetention !== null
+              ? Math.round(mlRetention * 100)
+              : Math.max(0, 100 - forgettingProbability);
+            const adjustedStatus: Concept["status"] =
+              adjustedRetention >= 70 ? "strong" : adjustedRetention >= 40 ? "fading" : "critical";
+            return {
+              ...c,
+              forgettingProbability,
+              retention: adjustedRetention,
+              status: adjustedStatus,
+            };
           })
         );
       });
