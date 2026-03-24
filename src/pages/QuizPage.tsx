@@ -28,7 +28,7 @@ interface QuizResult {
 async function fetchAIQuestions(conceptName: string, subject: string, difficulty: string, conceptId: string): Promise<QuizQuestion[]> {
   try {
     const { data, error } = await supabase.functions.invoke("generate-quiz", {
-      body: { conceptName, subject, difficulty, numQuestions: 3 },
+      body: { conceptName, subject, difficulty, numQuestions: 6 },
     });
     if (error || !data?.questions) throw new Error(error?.message || "No questions returned");
     return data.questions.map((q: any, i: number) => ({
