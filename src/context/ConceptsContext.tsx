@@ -155,11 +155,16 @@ export const ConceptsProvider = ({ children }: { children: React.ReactNode }) =>
               : Math.max(0, 100 - forgettingProbability);
             const adjustedStatus: Concept["status"] =
               adjustedRetention >= 70 ? "strong" : adjustedRetention >= 40 ? "fading" : "critical";
+            // If ML says low risk but schedule says overdue, soften the label
+            const adjustedNextReview = (forgettingProbability < 30 && c.nextReview === "Overdue")
+              ? "No rush"
+              : c.nextReview;
             return {
               ...c,
               forgettingProbability,
               retention: adjustedRetention,
               status: adjustedStatus,
+              nextReview: adjustedNextReview,
             };
           })
         );
