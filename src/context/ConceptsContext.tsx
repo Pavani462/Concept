@@ -236,10 +236,18 @@ export const ConceptsProvider = ({ children }: { children: React.ReactNode }) =>
 
   const updateRetentionFromQuiz = useCallback(async (conceptId: string, correct: number, total: number) => {
     if (!user) return;
-    const concept = concepts.find((c) => c.id === conceptId);
-    if (!concept) return;
+    // Fetch fresh concept data from DB to avoid stale state
+    const { data: freshData } = await supabase
+      .from("concepts")
+      .select("*")
+      .eq("id", conceptId)
+      .eq("user_id", user.id)
+      .single();
+    if (!freshData) return;
+
     const score = total > 0 ? correct / total : 0;
-    const newRetention = Math.max(0, Math.min(100, Math.round(concept.retention * 0.4 + score * 100 * 0.6)));
+    const oldRetention = freshData.retention as number;
+    const newRetention = Math.max(0, Math.min(100, Math.round(oldRetention * 0.4 + score * 100 * 0.6)));
     const newStatus: Concept["status"] = newRetention >= 70 ? "strong" : newRetention >= 40 ? "fading" : "critical";
     const nextDays = newRetention >= 80 ? 3 : newRetention >= 50 ? 1 : 0;
     const nextAt = new Date(Date.now() + nextDays * 86400000).toISOString();
@@ -248,7 +256,7 @@ export const ConceptsProvider = ({ children }: { children: React.ReactNode }) =>
     const { error } = await supabase.from("concepts").update({
       retention: newRetention,
       status: newStatus,
-      review_count: concept.reviewCount + 1,
+      review_count: (freshData.review_count as number) + 1,
       last_reviewed_at: now,
       next_review_at: nextAt,
     }).eq("id", conceptId).eq("user_id", user.id);
@@ -261,9 +269,7 @@ export const ConceptsProvider = ({ children }: { children: React.ReactNode }) =>
       correct_answers: correct,
       total_questions: total,
     });
-
-    await fetchConcepts();
-  }, [user, concepts, fetchConcepts]);
+  }, [user]);
 
   return (
     <ConceptsContext.Provider value={{ concepts, loading, addConcept, deleteConcept, markReviewed, updateRetentionFromQuiz }}>
