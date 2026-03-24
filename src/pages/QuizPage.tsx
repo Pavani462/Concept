@@ -119,11 +119,12 @@ const QuizPage = () => {
     });
   };
 
-  const nextQuestion = () => {
+  const nextQuestion = async () => {
     if (currentIdx + 1 >= questions.length) {
-      Object.entries(results).forEach(([conceptId, r]) => {
-        updateRetentionFromQuiz(conceptId, r.correct, r.total);
-      });
+      // Update each concept sequentially to avoid stale data
+      for (const [conceptId, r] of Object.entries(results)) {
+        await updateRetentionFromQuiz(conceptId, r.correct, r.total);
+      }
       setState("result");
     } else {
       setCurrentIdx((i) => i + 1);
