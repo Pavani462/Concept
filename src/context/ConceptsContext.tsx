@@ -136,39 +136,28 @@ export const ConceptsProvider = ({ children }: { children: React.ReactNode }) =>
     if (error) { toast.error("Failed to load concepts"); console.error(error); }
     else {
       const mapped = (data ?? []).map(mapRow);
-      setConcepts(mapped);
-      // Fetch ML predictions asynchronously and update
-      Promise.all(
-        mapped.map(async (c) => {
-          const mlResult = await fetchMLPredictionFull(c.name, c.difficulty, c.daysSinceReview ?? 0);
-          return { id: c.id, mlResult };
-        })
-      ).then((results) => {
-        setConcepts((prev) =>
-          prev.map((c) => {
-            const r = results.find((x) => x.id === c.id);
-            if (!r?.mlResult) return c;
-            const { forgettingProbability, retention: mlRetention } = r.mlResult;
-            // Use ML retention to adjust displayed retention
-            const adjustedRetention = mlRetention !== null
-              ? Math.round(mlRetention * 100)
-              : Math.max(0, 100 - forgettingProbability);
-            const adjustedStatus: Concept["status"] =
-              adjustedRetention >= 70 ? "strong" : adjustedRetention >= 40 ? "fading" : "critical";
-            // If ML says low risk but schedule says overdue, soften the label
-            const adjustedNextReview = (forgettingProbability < 30 && c.nextReview === "Overdue")
-              ? "No rush"
-              : c.nextReview;
-            return {
-              ...c,
-              forgettingProbability,
-              retention: adjustedRetention,
-              status: adjustedStatus,
-              nextReview: adjustedNextReview,
-            };
-          })
-        );
-      });
+
+      // Resolve ML predictions before setting state so values don't flicker/change twice.
+      const mlResults = await Promise.all(
+        mapped.map(async (c) => ({
+          id: c.id,
+          mlResult: await fetchMLPredictionFull(c.name, c.difficulty, c.daysSinceReview ?? 0),
+        }))
+      );
+
+      const mlRiskById = new Map(
+        mlResults
+          .filter((r) => r.mlResult)
+          .map((r) => [r.id, r.mlResult!.forgettingProbability])
+      );
+
+      setConcepts(
+        mapped.map((c) => ({
+          ...c,
+          // Keep retention/status from quiz-review logic; ML is supplemental risk only.
+          forgettingProbability: mlRiskById.get(c.id) ?? c.forgettingProbability,
+        }))
+      );
     }
     setLoading(false);
   }, [user]);
@@ -269,6 +258,24 @@ export const ConceptsProvider = ({ children }: { children: React.ReactNode }) =>
       correct_answers: correct,
       total_questions: total,
     });
+
+    // Keep UI in sync immediately after quiz without waiting for a later refetch.
+    setConcepts((prev) =>
+      prev.map((c) =>
+        c.id === conceptId
+          ? {
+              ...c,
+              retention: newRetention,
+              status: newStatus,
+              reviewCount: c.reviewCount + 1,
+              lastReviewed: "Just now",
+              nextReview: formatNextReview(nextAt),
+              daysSinceReview: 0,
+              forgettingProbability: calcForgettingProbability(newRetention, c.difficulty, 0),
+            }
+          : c
+      )
+    );
   }, [user]);
 
   return (
