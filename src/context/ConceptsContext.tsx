@@ -154,13 +154,19 @@ export const ConceptsProvider = ({ children }: { children: React.ReactNode }) =>
       setConcepts(
         mapped.map((c) => {
           const ml = mlById.get(c.id);
-          // Keep retention/status from quiz performance in DB,
-          // and use ML risk as an additional floor (never lower than local risk).
-          const localRisk = c.forgettingProbability ?? 0;
-          const mergedRisk = ml ? Math.max(localRisk, ml.forgettingProbability) : localRisk;
+          if (!ml) return c;
+          const { forgettingProbability, retention: mlRetention } = ml;
+          // ML drives retention & risk by default
+          const adjustedRetention = mlRetention !== null
+            ? Math.round(mlRetention * 100)
+            : Math.max(0, 100 - forgettingProbability);
+          const adjustedStatus: Concept["status"] =
+            adjustedRetention >= 70 ? "strong" : adjustedRetention >= 40 ? "fading" : "critical";
           return {
             ...c,
-            forgettingProbability: mergedRisk,
+            retention: adjustedRetention,
+            status: adjustedStatus,
+            forgettingProbability,
           };
         })
       );
