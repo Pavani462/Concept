@@ -154,7 +154,10 @@ export const ConceptsProvider = ({ children }: { children: React.ReactNode }) =>
       setConcepts(
         mapped.map((c) => {
           const ml = mlById.get(c.id);
-          if (!ml) return c;
+          // Only apply ML adjustment when there's been time since last review.
+          // For freshly reviewed/quizzed concepts (daysSinceReview=0), the DB
+          // retention from quiz score is more accurate than ML's generic 80%.
+          if (!ml || (c.daysSinceReview ?? 0) === 0) return c;
           const { forgettingProbability, retention: mlRetention } = ml;
           // ML drives retention & risk by default
           const adjustedRetention = mlRetention !== null
