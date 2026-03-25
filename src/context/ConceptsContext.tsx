@@ -145,18 +145,30 @@ export const ConceptsProvider = ({ children }: { children: React.ReactNode }) =>
         }))
       );
 
-      const mlRiskById = new Map(
+      const mlById = new Map(
         mlResults
           .filter((r) => r.mlResult)
-          .map((r) => [r.id, r.mlResult!.forgettingProbability])
+          .map((r) => [r.id, r.mlResult!])
       );
 
       setConcepts(
-        mapped.map((c) => ({
-          ...c,
-          // Keep retention/status from quiz-review logic; ML is supplemental risk only.
-          forgettingProbability: mlRiskById.get(c.id) ?? c.forgettingProbability,
-        }))
+        mapped.map((c) => {
+          const ml = mlById.get(c.id);
+          if (!ml) return c;
+          const { forgettingProbability, retention: mlRetention } = ml;
+          // Use ML-adjusted retention that accounts for time decay
+          const adjustedRetention = mlRetention !== null
+            ? Math.round(mlRetention * 100)
+            : Math.max(0, 100 - forgettingProbability);
+          const adjustedStatus: Concept["status"] =
+            adjustedRetention >= 70 ? "strong" : adjustedRetention >= 40 ? "fading" : "critical";
+          return {
+            ...c,
+            retention: adjustedRetention,
+            status: adjustedStatus,
+            forgettingProbability,
+          };
+        })
       );
     }
     setLoading(false);
