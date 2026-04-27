@@ -136,8 +136,12 @@ export const ConceptsProvider = ({ children }: { children: React.ReactNode }) =>
     if (error) { toast.error("Failed to load concepts"); console.error(error); }
     else {
       const mapped = (data ?? []).map(mapRow);
+      // Show concepts immediately from DB so the UI never appears empty
+      // while ML predictions are loading.
+      setConcepts(mapped);
+      setLoading(false);
 
-      // Resolve ML predictions before setting state so values don't flicker/change twice.
+      // Enrich with ML predictions in the background.
       const mlResults = await Promise.all(
         mapped.map(async (c) => ({
           id: c.id,
@@ -151,15 +155,11 @@ export const ConceptsProvider = ({ children }: { children: React.ReactNode }) =>
           .map((r) => [r.id, r.mlResult!])
       );
 
-      setConcepts(
-        mapped.map((c) => {
+      setConcepts((prev) =>
+        prev.map((c) => {
           const ml = mlById.get(c.id);
-          // Only apply ML adjustment when there's been time since last review.
-          // For freshly reviewed/quizzed concepts (daysSinceReview=0), the DB
-          // retention from quiz score is more accurate than ML's generic 80%.
           if (!ml || (c.daysSinceReview ?? 0) === 0) return c;
           const { forgettingProbability, retention: mlRetention } = ml;
-          // ML drives retention & risk by default
           const adjustedRetention = mlRetention !== null
             ? Math.round(mlRetention * 100)
             : Math.max(0, 100 - forgettingProbability);
@@ -173,6 +173,7 @@ export const ConceptsProvider = ({ children }: { children: React.ReactNode }) =>
           };
         })
       );
+      return;
     }
     setLoading(false);
   }, [user]);
