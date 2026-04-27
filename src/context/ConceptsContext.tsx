@@ -173,18 +173,17 @@ export const ConceptsProvider = ({ children }: { children: React.ReactNode }) =>
 
       setConcepts((prev) =>
         prev.map((c) => {
+          if (c.reviewCount > 0) return c;
+
           const ml = mlById.get(c.id);
-          if (!ml || (c.daysSinceReview ?? 0) === 0) return c;
-          const { forgettingProbability, retention: mlRetention } = ml;
-          const adjustedRetention = mlRetention !== null
-            ? Math.round(mlRetention * 100)
-            : Math.max(0, 100 - forgettingProbability);
-          const adjustedStatus: Concept["status"] =
-            adjustedRetention >= 70 ? "strong" : adjustedRetention >= 40 ? "fading" : "critical";
+          const mlRetention = ml?.retention ?? null;
+          const forgettingProbability = ml?.forgettingProbability ?? unquizzedMLFallback(c.difficulty, c.daysSinceReview ?? 0).forgettingProbability;
+          const adjustedRetention = mlRetention ?? Math.max(0, 100 - forgettingProbability);
+
           return {
             ...c,
             retention: adjustedRetention,
-            status: adjustedStatus,
+            status: statusFromRetention(adjustedRetention),
             forgettingProbability,
           };
         })
