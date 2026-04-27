@@ -17,7 +17,8 @@ async function fetchMLPredictionFull(concept: string, difficulty: string, timeGa
     if (prob === null || prob === undefined) return null;
     const fpNorm = prob <= 1 ? Math.round(prob * 100) : Math.round(prob);
     const ret = data?.retention ?? null;
-    return { forgettingProbability: fpNorm, retention: typeof ret === "number" ? ret : null };
+    const retNorm = typeof ret === "number" ? Math.round(ret <= 1 ? ret * 100 : ret) : null;
+    return { forgettingProbability: fpNorm, retention: retNorm };
   } catch (err) {
     console.warn("ML prediction request failed:", err);
     return null;
@@ -102,6 +103,21 @@ function calcForgettingProbability(
   return Math.max(0, Math.min(100, 100 - predicted));
 }
 
+function statusFromRetention(retention: number): Concept["status"] {
+  return retention >= 70 ? "strong" : retention >= 40 ? "fading" : "critical";
+}
+
+function unquizzedMLFallback(difficulty: string, daysSinceReview: number) {
+  const initialRetention = 80;
+  const forgettingProbability = calcForgettingProbability(initialRetention, difficulty, daysSinceReview);
+  const retention = Math.max(0, 100 - forgettingProbability);
+  return {
+    retention,
+    forgettingProbability,
+    status: statusFromRetention(retention),
+  };
+}
+
 function mapRow(row: Record<string, unknown>): Concept {
   const days = daysSince(row.last_reviewed_at as string);
   const fp = calcForgettingProbability(row.retention as number, row.difficulty as string, days);
@@ -157,18 +173,17 @@ export const ConceptsProvider = ({ children }: { children: React.ReactNode }) =>
 
       setConcepts((prev) =>
         prev.map((c) => {
+          if (c.reviewCount > 0) return c;
+
           const ml = mlById.get(c.id);
-          if (!ml || (c.daysSinceReview ?? 0) === 0) return c;
-          const { forgettingProbability, retention: mlRetention } = ml;
-          const adjustedRetention = mlRetention !== null
-            ? Math.round(mlRetention * 100)
-            : Math.max(0, 100 - forgettingProbability);
-          const adjustedStatus: Concept["status"] =
-            adjustedRetention >= 70 ? "strong" : adjustedRetention >= 40 ? "fading" : "critical";
+          const mlRetention = ml?.retention ?? null;
+          const forgettingProbability = ml?.forgettingProbability ?? unquizzedMLFallback(c.difficulty, c.daysSinceReview ?? 0).forgettingProbability;
+          const adjustedRetention = mlRetention ?? Math.max(0, 100 - forgettingProbability);
+
           return {
             ...c,
             retention: adjustedRetention,
-            status: adjustedStatus,
+            status: statusFromRetention(adjustedRetention),
             forgettingProbability,
           };
         })
@@ -251,9 +266,8 @@ export const ConceptsProvider = ({ children }: { children: React.ReactNode }) =>
     if (!freshData) return;
 
     const score = total > 0 ? correct / total : 0;
-    const oldRetention = freshData.retention as number;
-    const newRetention = Math.max(0, Math.min(100, Math.round(oldRetention * 0.4 + score * 100 * 0.6)));
-    const newStatus: Concept["status"] = newRetention >= 70 ? "strong" : newRetention >= 40 ? "fading" : "critical";
+    const newRetention = Math.max(0, Math.min(100, Math.round(score * 100)));
+    const newStatus = statusFromRetention(newRetention);
     const nextDays = newRetention >= 80 ? 3 : newRetention >= 50 ? 1 : 0;
     const nextAt = new Date(Date.now() + nextDays * 86400000).toISOString();
     const now = new Date().toISOString();
@@ -287,7 +301,7 @@ export const ConceptsProvider = ({ children }: { children: React.ReactNode }) =>
               lastReviewed: "Just now",
               nextReview: formatNextReview(nextAt),
               daysSinceReview: 0,
-              forgettingProbability: calcForgettingProbability(newRetention, c.difficulty, 0),
+              forgettingProbability: 100 - newRetention,
             }
           : c
       )
