@@ -17,7 +17,8 @@ async function fetchMLPredictionFull(concept: string, difficulty: string, timeGa
     if (prob === null || prob === undefined) return null;
     const fpNorm = prob <= 1 ? Math.round(prob * 100) : Math.round(prob);
     const ret = data?.retention ?? null;
-    return { forgettingProbability: fpNorm, retention: typeof ret === "number" ? ret : null };
+    const retNorm = typeof ret === "number" ? Math.round(ret <= 1 ? ret * 100 : ret) : null;
+    return { forgettingProbability: fpNorm, retention: retNorm };
   } catch (err) {
     console.warn("ML prediction request failed:", err);
     return null;
@@ -100,6 +101,21 @@ function calcForgettingProbability(
   const decayRate = Math.exp(-daysSinceReview / stability);
   const predicted = Math.round(retention * decayRate);
   return Math.max(0, Math.min(100, 100 - predicted));
+}
+
+function statusFromRetention(retention: number): Concept["status"] {
+  return retention >= 70 ? "strong" : retention >= 40 ? "fading" : "critical";
+}
+
+function unquizzedMLFallback(difficulty: string, daysSinceReview: number) {
+  const initialRetention = 80;
+  const forgettingProbability = calcForgettingProbability(initialRetention, difficulty, daysSinceReview);
+  const retention = Math.max(0, 100 - forgettingProbability);
+  return {
+    retention,
+    forgettingProbability,
+    status: statusFromRetention(retention),
+  };
 }
 
 function mapRow(row: Record<string, unknown>): Concept {
