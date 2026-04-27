@@ -266,9 +266,8 @@ export const ConceptsProvider = ({ children }: { children: React.ReactNode }) =>
     if (!freshData) return;
 
     const score = total > 0 ? correct / total : 0;
-    const oldRetention = freshData.retention as number;
-    const newRetention = Math.max(0, Math.min(100, Math.round(oldRetention * 0.4 + score * 100 * 0.6)));
-    const newStatus: Concept["status"] = newRetention >= 70 ? "strong" : newRetention >= 40 ? "fading" : "critical";
+    const newRetention = Math.max(0, Math.min(100, Math.round(score * 100)));
+    const newStatus = statusFromRetention(newRetention);
     const nextDays = newRetention >= 80 ? 3 : newRetention >= 50 ? 1 : 0;
     const nextAt = new Date(Date.now() + nextDays * 86400000).toISOString();
     const now = new Date().toISOString();
@@ -302,7 +301,7 @@ export const ConceptsProvider = ({ children }: { children: React.ReactNode }) =>
               lastReviewed: "Just now",
               nextReview: formatNextReview(nextAt),
               daysSinceReview: 0,
-              forgettingProbability: calcForgettingProbability(newRetention, c.difficulty, 0),
+              forgettingProbability: 100 - newRetention,
             }
           : c
       )
